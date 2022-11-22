@@ -3,7 +3,8 @@ const open = require('sqlite').open
 const fs = require('fs')
 
 const filename = 'contacts.sqlite3'
-const numContacts = 3 // TODO: read from process.argv
+const myArgs = process.argv.slice(2)
+const numContacts = myArgs.length ? myArgs[0] : 3
 
 const shouldMigrate = !fs.existsSync(filename)
 
@@ -12,11 +13,12 @@ const shouldMigrate = !fs.existsSync(filename)
  * one at a time
  *
  */
-function * generateContacts () {
- // TODO
-  yield [`name-1`, `email-1@domain.tld`]
-  yield [`name-2`, `email-2@domain.tld`]
-  yield [`name-3`, `email-3@domain.tld`]
+function * generateContacts (numContacts) {
+  let i = 1
+  while (i <= numContacts) {
+    yield [`name-${i}`, `email-${i}@domain.tld`]
+    i++
+  }
 }
 
 const migrate = async (db) => {
@@ -26,14 +28,34 @@ const migrate = async (db) => {
           id INTEGER PRIMARY KEY,
           name TEXT NOT NULL,
           email TEXT NOT NULL
-         )
+         );
      `)
+  //await db.exec(`CREATE UNIQUE INDEX index_contacts_email ON contacts(email);`)
   console.log('Done migrating db')
 }
 
 const insertContacts = async (db) => {
+  const start = Date.now()
   console.log('Inserting contacts ...')
-  // TODO
+  let listContacts = []
+  for (const contact of generateContacts(numContacts)) {
+    listContacts.push(contact)
+    if (listContacts.length == 10000) {
+      let param = listContacts.map((contact) => '(?, ?)').join(',');
+      const sql = 'INSERT INTO contacts(name, email) VALUES ' + param;
+      await db.run(sql, listContacts.flat())
+      listContacts = []
+    }
+  }
+  if (listContacts.length) {
+    let param = listContacts.map((contact) => '(?, ?)').join(',');
+    const sql = 'INSERT INTO contacts(name, email) VALUES ' + param;
+    await db.run(sql, listContacts.flat())
+    listContacts = []
+  }
+  const end = Date.now()
+  const elapsed = (end - start) / 1000
+  console.log(`Insert took ${elapsed} seconds`)
 }
 
 const queryContact = async (db) => {
@@ -43,6 +65,7 @@ const queryContact = async (db) => {
     console.error('Contact not found')
     process.exit(1)
   }
+  console.log(res.name)
   const end = Date.now()
   const elapsed = (end - start) / 1000
   console.log(`Query took ${elapsed} seconds`)
@@ -55,6 +78,8 @@ const queryContact = async (db) => {
   })
   if (shouldMigrate) {
     await migrate(db)
+  } else {
+    await db.run(`DELETE FROM contacts`)
   }
   await insertContacts(db)
   await queryContact(db)
